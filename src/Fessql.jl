@@ -16,13 +16,13 @@ abstract type DBConfig end
     colnames(m::Type{T}) where {T<:Model}
     对于给定的Model返回列的数组.
 """
-colnames(m::Type{T}) where {T<:Model} = [fieldname for fieldname in fieldnames(m) if fieldname != :__tablename__]
+colnames(m::Type{T}) where {T <: Model} = [fieldname for fieldname in fieldnames(m) if fieldname != :__tablename__]
 
 """
     model2tuple(m::T) where {T<:Model}
     转换给定的model到元祖.
 """
-function model2tuple(m::T) where {T<:Model}
+function model2tuple(m::T) where {T <: Model}
     return tuple(map(col -> (col, getfield(m, col)), colnames(T))...)
 end
 
@@ -30,7 +30,7 @@ end
     tablename(m::T) where {T<:Model}
     返回给定Model的表名,如果没有指定则报错.
 """
-function tablename(m::T) where {T<:Model}
+function tablename(m::T) where {T <: Model}
     if :__tablename__
         not in fieldnames(T)
         error("Struct Model $m 未定义__tablename__表名字段")
@@ -38,9 +38,8 @@ function tablename(m::T) where {T<:Model}
     return m.__tablename__
 end
 
-
 # 存储数据库连接
-const dbconns = Dict{String,DBInterface.Connection}()
+const dbconns = Dict{String, DBInterface.Connection}()
 
 """
 以下定义一些必要的抽象类型和函数
@@ -65,6 +64,13 @@ function close_db end
     执行给定的查询用给定的参数，主要用于更新，删除和插入.
 """
 function execute end
+
+"""
+    _execute(conn::MySQL.Connection, sql::AbstractString)
+    _execute(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any})
+    主要用于无事务、有参数、参数基础执行方法.
+"""
+function _execute end
 
 """
     query_execute(db::Any, query::Any, params::Any)
@@ -119,7 +125,6 @@ function delete! end
     插入，更新和删除事务上下文.
 """
 function tx_context end
-
 
 include("backends/mysql.jl")
 

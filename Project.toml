@@ -6,6 +6,7 @@ version = "0.1.0"
 [deps]
 DBInterface = "a10d1c49-ce27-4219-8d33-6db1a4562965"
 FunSQL = "cf6cc811-59f4-4a10-b258-a8547a8f6407"
+JuliaFormatter = "98e50ef6-434e-11e9-1051-2b60c6c9e899"
 LRUCache = "8ac3fa9e-de4c-5943-b1dc-09c6b5f20637"
 MySQL = "39abe10b-433b-5dbd-92d4-e302a9df00cd"
 PrettyPrinting = "54e16d92-306c-5ea0-a30b-337be88ac337"
