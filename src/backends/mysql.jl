@@ -3,9 +3,6 @@
 # This software is released under the MIT License.
 # https://opensource.org/licenses/MIT
 
-using Tables
-using FunSQL: SQLString, SQLNode, pack, render
-
 Base.@kwdef struct MysqlDBConfig <: DBConfig
     dbhost::String
     username::String
@@ -69,7 +66,7 @@ function tx_context(f::Function, conn::MySQL.Connection)
     end
 end
 
-function execute(conn::MySQL.Connection, sql::AbstractString)
+function execute!(conn::MySQL.Connection, sql::AbstractString)
     sql = MySQL.escape(conn, sql)
     textcursor::Union{Nothing, MySQL.TextCursor} = nothing
     try
@@ -82,7 +79,7 @@ function execute(conn::MySQL.Connection, sql::AbstractString)
     end
 end
 
-function execute(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any})
+function execute!(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any})
     sql = MySQL.escape(conn, sql)
     cursor::Union{Nothing, MySQL.Cursor} = nothing
     try
@@ -137,7 +134,7 @@ function execute_query(conn::MySQL.Connection, sql::AbstractString, params::Vect
     end
 end
 
-function _execute(conn::MySQL.Connection, sql::AbstractString)
+function _execute!(conn::MySQL.Connection, sql::AbstractString)
     textcursor::Union{Nothing, MySQL.TextCursor} = nothing
     try
         textcursor = DBInterface.execute(conn, MySQL.escape(conn, sql); mysql_store_result = false)
@@ -149,7 +146,7 @@ function _execute(conn::MySQL.Connection, sql::AbstractString)
     end
 end
 
-function _execute(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any})
+function _execute!(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any})
     stmt::Union{Nothing, MySQL.Statement} = nothing
     cursor::Union{Nothing, MySQL.Cursor} = nothing
     try
@@ -168,24 +165,36 @@ end
 
 function delete!(conn::MySQL.Connection, model::Type{T}, q::String) where {T <: Model}
     del_sql::String = "delete from $(tablename(model)) where $q;"
-    _execute(conn, del_sql)
+    _execute!(conn, del_sql)
 end
 
 function delete!(conn::MySQL.Connection, model::Type{T}, q::String, params::Vector{Any}) where {T <: Model}
     del_sql::String = "delete from $(tablename(model)) where $q;"
-    _execute(conn, del_sql, params)
+    _execute!(conn, del_sql, params)
 end
 
-function delete!(conn::MySQL.Connection, model::Type{T}, q::SQLString,
-    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing) where {T <: Model}
-    if length(q.vars) > 0
-        delete!(conn, model, q.raw, pack(q.vars, args_values))
+function get_talias(sql::String)::String
+    result::Union{Nothing, RegexMatch} = match(r"AS (`.+`)", sql)
+    if result !== nothing
+        return result.captures[1]
     else
-        delete!(conn, model, q.raw)
+        return ""
     end
 end
 
-function delete!(conn::MySQL.Connection, model::Type{T}, q::SQLNode,
-    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing) where {T <: Model}
-    delete!(conn, model, render(), args_values)
+function delete!(conn::MySQL.Connection, q::FunSQL.SQLString,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)
+    raw_sql = q.raw
+    # eg: delete t1 from xxxx as t1 where t1.id = 1
+    del_sql = "delete $(get_talias(raw_sql)) $(raw_sql[findfirst("FROM", raw_sql).start: end])"
+    if length(q.vars) > 0
+        _execute!(conn, del_sql, FunSQL.pack(q.vars, args_values))
+    else
+        _execute!(conn, del_sql)
+    end
+end
+
+function delete!(conn::MySQL.Connection, q::FunSQL.SQLNode,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)
+    delete!(conn, FunSQL.render(q; tables = mtables, dialect = :mysql), args_values)
 end

@@ -1,12 +1,13 @@
 module Fessql
 
-using MySQL
-export Model, colnames, model2tuple
+using MySQL, FunSQL, Tables
+export Model, colnames, model2tuple, FunSQL, Column, tablename
 
 """
-    用于struct结构的基本类型Model
+    用于描述表的抽象类型Model
 """
 abstract type Model end
+
 """
 用于数据库配置的抽象类型DBConfig
 """
@@ -30,9 +31,8 @@ end
     tablename(m::T) where {T<:Model}
     返回给定Model的表名,如果没有指定则报错.
 """
-function tablename(m::T) where {T <: Model}
-    if :__tablename__
-        not in fieldnames(T)
+function tablename(m::Type{T})::String where {T <: Model}
+    if !(:__tablename__ in fieldnames(m))
         error("Struct Model $m 未定义__tablename__表名字段")
     end
     return m.__tablename__
@@ -126,6 +126,7 @@ function delete! end
 """
 function tx_context end
 
+include("query.jl")
 include("backends/mysql.jl")
 
 end # module Fessql
