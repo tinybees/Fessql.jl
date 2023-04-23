@@ -66,75 +66,7 @@ function tx_context(f::Function, conn::MySQL.Connection)
     end
 end
 
-function execute!(conn::MySQL.Connection, sql::AbstractString)
-    sql = MySQL.escape(conn, sql)
-    textcursor::Union{Nothing, MySQL.TextCursor} = nothing
-    try
-        textcursor = tx_context(conn) do
-            return DBInterface.execute(conn, sql; mysql_store_result = false)
-        end
-        return Tables.dictrowtable(textcursor)
-    finally
-        DBInterface.close!(textcursor)
-    end
-end
-
-function execute!(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any})
-    sql = MySQL.escape(conn, sql)
-    cursor::Union{Nothing, MySQL.Cursor} = nothing
-    try
-        cursor = tx_context(conn) do
-            stmt = prepare(conn, sql)
-            try
-                return DBInterface.execute(stmt, params; mysql_store_result = false)
-            finally
-                DBInterface.close!(stmt)
-            end
-        end
-        return Tables.dictrowtable(cursor)
-    finally
-        DBInterface.close!(cursor)
-    end
-end
-
-function execute_query(conn::MySQL.Connection, sql::AbstractString; limit:Union{Nothing, Int} = nothing)
-    sql = MySQL.escape(conn, sql)
-    if limit !== nothing
-        if occursin("limit", sql)
-            sql = strip(sql[1:(findfirst("limit", sql).start - 1)])
-        end
-        sql = "$sql limit $limit"
-    end
-    textcursor::Union{Nothing, MySQL.TextCursor} = nothing
-    try
-        textcursor = DBInterface.execute(conn, sql; mysql_store_result = false)
-        return Tables.dictrowtable(textcursor)
-    finally
-        DBInterface.close!(textcursor)
-    end
-end
-
-function execute_query(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any};
-    limit:Union{Nothing, Int} = nothing)
-    sql = MySQL.escape(conn, sql)
-    if limit !== nothing
-        if occursin("limit", sql)
-            sql = strip(sql[1:(findfirst("limit", sql).start - 1)])
-        end
-        sql = "$sql limit $limit"
-    end
-    cursor::Union{Nothing, MySQL.Cursor} = nothing
-    try
-        stmt = prepare(conn, sql)
-        cursor = DBInterface.execute(stmt, params; mysql_store_result = false)
-        DBInterface.close!(stmt)
-        return Tables.dictrowtable(cursor)
-    finally
-        DBInterface.close!(cursor)
-    end
-end
-
-function _execute!(conn::MySQL.Connection, sql::AbstractString)
+function _execute(conn::MySQL.Connection, sql::AbstractString)
     textcursor::Union{Nothing, MySQL.TextCursor} = nothing
     try
         textcursor = DBInterface.execute(conn, MySQL.escape(conn, sql); mysql_store_result = false)
@@ -146,7 +78,7 @@ function _execute!(conn::MySQL.Connection, sql::AbstractString)
     end
 end
 
-function _execute!(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any})
+function _execute(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any})
     stmt::Union{Nothing, MySQL.Statement} = nothing
     cursor::Union{Nothing, MySQL.Cursor} = nothing
     try
@@ -163,14 +95,47 @@ function _execute!(conn::MySQL.Connection, sql::AbstractString, params::Vector{A
     end
 end
 
+function execute!(conn::MySQL.Connection, sql::AbstractString)
+    return tx_context(conn) do 
+        _execute(conn, sql)
+    end
+end
+
+function execute!(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any})
+    return tx_context(conn) do 
+        _execute(conn, sql, params)
+    end
+end
+
+function execute_query(conn::MySQL.Connection, sql::AbstractString; limit:Union{Nothing, Int} = nothing)
+    if limit !== nothing
+        if occursin("limit", sql)
+            sql = strip(sql[1:(findfirst("limit", sql).start - 1)])
+        end
+        sql = "$sql limit $limit"
+    end
+    return _execute(conn, sql)
+end
+
+function execute_query(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any};
+    limit:Union{Nothing, Int} = nothing)
+    if limit !== nothing
+        if occursin("limit", sql)
+            sql = strip(sql[1:(findfirst("limit", sql).start - 1)])
+        end
+        sql = "$sql limit $limit"
+    end
+    return _execute(conn, sql, params)
+end
+
 function delete!(conn::MySQL.Connection, model::Type{T}, q::String) where {T <: Model}
     del_sql::String = "delete from $(tablename(model)) where $q;"
-    _execute!(conn, del_sql)
+    _execute(conn, del_sql)
 end
 
 function delete!(conn::MySQL.Connection, model::Type{T}, q::String, params::Vector{Any}) where {T <: Model}
     del_sql::String = "delete from $(tablename(model)) where $q;"
-    _execute!(conn, del_sql, params)
+    _execute(conn, del_sql, params)
 end
 
 function get_talias(sql::String)::String
@@ -188,9 +153,9 @@ function delete!(conn::MySQL.Connection, q::FunSQL.SQLString,
     # eg: delete t1 from xxxx as t1 where t1.id = 1
     del_sql = "delete $(get_talias(raw_sql)) $(raw_sql[findfirst("FROM", raw_sql).start: end])"
     if length(q.vars) > 0
-        _execute!(conn, del_sql, FunSQL.pack(q.vars, args_values))
+        _execute(conn, del_sql, FunSQL.pack(q.vars, args_values))
     else
-        _execute!(conn, del_sql)
+        _execute(conn, del_sql)
     end
 end
 
