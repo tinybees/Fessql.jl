@@ -96,13 +96,13 @@ function _execute(conn::MySQL.Connection, sql::AbstractString, params::Vector{An
 end
 
 function execute!(conn::MySQL.Connection, sql::AbstractString)
-    return tx_context(conn) do 
+    return tx_context(conn) do
         _execute(conn, sql)
     end
 end
 
 function execute!(conn::MySQL.Connection, sql::AbstractString, params::Vector{Any})
-    return tx_context(conn) do 
+    return tx_context(conn) do
         _execute(conn, sql, params)
     end
 end
@@ -162,4 +162,85 @@ end
 function delete!(conn::MySQL.Connection, q::FunSQL.SQLNode,
     args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)
     delete!(conn, FunSQL.render(q; tables = mtables, dialect = :mysql), args_values)
+end
+
+function insert!(conn::MySQL.Connection, insert_data::T) where {T <: Model}
+    fields = map(colpairs -> colpairs[1], model2tuple(insert_data))
+    values = map(colpairs -> colpairs[2], model2tuple(insert_data))
+
+    insert_sql = "INSERT INTO $(tablename(
+        typeof(insert_data))) ($(join(fields, ", "))) VALUES ($(join(fill("?", length(fields)), ", ")))"
+
+    return _execute(conn, insert_sql, values)
+end
+
+function insert!(conn::MySQL.Connection, insert_data::Vector{T}) where {T <: Model}
+    fields = map(colpairs -> colpairs[1], model2tuple(insert_data[0]))
+    # values = [map(colpairs -> colpairs[2], model2tuple(one_model)) for one_model in model]
+    insert_data_::Vector{String} = []
+    for one_model in model
+        row_data::Vector{String} = []
+        for one_field in map(colpairs -> colpairs[2], model2tuple(one_model))
+            if typeof(one_field) == String
+                push!(row_data, "'$(one_field)'")
+            elseif typeof(one_field) == Nothing
+                push!(row_data, "NULL")
+            elseif typeof(one_field) in (Date, DateTime)
+                push!(row_data, date2string(one_field))
+            else
+                push!(row_data, one_field)
+            end
+        end
+        push!(insert_data_, "($(join(row_data, ",")))")
+    end
+
+    insert_sql = "INSERT INTO $(tablename(typeof(model))) ($(join(fields, ", "))) VALUES ($(join(insert_data_)))"
+
+    return _execute(conn, insert_sql)
+end
+
+function get_update_fields_str(update_data::Dict{String, Any})::String
+    update_fields::Vector{String} = []
+    for (field, value) in update_data
+        if typeof(value) == String
+            push!(update_fields, "$(field) = '$(value)'")
+        elseif typeof(value) == Nothing
+            push!(update_fields, "$(field) = NULL")
+        elseif typeof(value) in (Date, DateTime)
+            push!(update_fields, "$(field) = '$(date2string(value))'")
+        else
+            push!(update_fields, value)
+        end
+    end
+    return join(update_fields, ",")
+end
+
+function update!(conn::MySQL.Connection, model::Type{T}, update_data::Dict{String, Any}, q::String) where {T <: Model}
+    update_sql::String = "update $(tablename(model)) set $(get_update_fields_str(update_data)) where $q;"
+    _execute(conn, update_sql)
+end
+
+function update!(conn::MySQL.Connection, model::Type{T}, update_data::Dict{String, Any},
+    q::String, params::Vector{Any}) where {T <: Model}
+    update_sql::String = "update $(tablename(model)) set $(get_update_fields_str(update_data)) where $q;"
+    _execute(conn, update_sql, params)
+end
+
+function update!(conn::MySQL.Connection, update_data::Dict{String, Any}, q::FunSQL.SQLString,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)
+    raw_sql = q.raw
+    # eg: update tablename as t1 set x=x where t1.id = 1
+    tablename = raw_sql[findfirst("FROM", sql).stop+1: findfirst("WHERE", raw_sql).start-1]
+    where_part = raw_sql[(findfirst("WHERE", raw_sql).start):end]
+    update_sql = "update $(tablename) set $(get_update_fields_str(update_data)) $(where_part);"
+    if length(q.vars) > 0
+        _execute(conn, update_sql, FunSQL.pack(q.vars, args_values))
+    else
+        _execute(conn, update_sql)
+    end
+end
+
+function update!(conn::MySQL.Connection, update_data::Dict{String, Any}, q::FunSQL.SQLNode,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)
+    update!(conn, update_data, FunSQL.render(q; tables = mtables, dialect = :mysql), args_values)
 end

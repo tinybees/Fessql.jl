@@ -127,6 +127,7 @@ function delete! end
 function tx_context end
 
 include("query.jl")
+include("backends/utils.jl")
 include("backends/mysql.jl")
 
 end # module Fessql
