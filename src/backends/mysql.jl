@@ -70,7 +70,7 @@ function _execute(conn::MySQL.Connection, sql::AbstractString)
     textcursor::Union{Nothing, MySQL.TextCursor} = nothing
     try
         textcursor = DBInterface.execute(conn, MySQL.escape(conn, sql); mysql_store_result = false)
-        return Tables.dictrowtable(textcursor)
+        return Tables.rowtable(textcursor)
     finally
         if textcursor !== nothing
             DBInterface.close!(textcursor)
@@ -84,7 +84,7 @@ function _execute(conn::MySQL.Connection, sql::AbstractString, params::Vector{An
     try
         stmt = prepare(conn, MySQL.escape(conn, sql))
         cursor = DBInterface.execute(stmt, params; mysql_store_result = false)
-        return Tables.dictrowtable(cursor)
+        return Tables.rowtable(cursor)
     finally
         if stmt !== nothing
             DBInterface.close!(stmt)
@@ -123,7 +123,7 @@ function execute_query(conn::MySQL.Connection, sql::AbstractString, params::Vect
         if occursin("limit", sql)
             sql = strip(sql[1:(findfirst("limit", sql).start - 1)])
         end
-        sql = "$sql limit $limit"
+        sql = "$sql limit $(limit)"
     end
     return _execute(conn, sql, params)
 end
@@ -230,7 +230,7 @@ function update!(conn::MySQL.Connection, update_data::Dict{String, Any}, q::FunS
     args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)
     raw_sql = q.raw
     # eg: update tablename as t1 set x=x where t1.id = 1
-    tablename = raw_sql[findfirst("FROM", sql).stop+1: findfirst("WHERE", raw_sql).start-1]
+    tablename = raw_sql[(findfirst("FROM", sql).stop + 1):(findfirst("WHERE", raw_sql).start - 1)]
     where_part = raw_sql[(findfirst("WHERE", raw_sql).start):end]
     update_sql = "update $(tablename) set $(get_update_fields_str(update_data)) $(where_part);"
     if length(q.vars) > 0
@@ -243,4 +243,77 @@ end
 function update!(conn::MySQL.Connection, update_data::Dict{String, Any}, q::FunSQL.SQLNode,
     args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)
     update!(conn, update_data, FunSQL.render(q; tables = mtables, dialect = :mysql), args_values)
+end
+
+function find_count(conn::MySQL.Connection, sql::FunSQL.SQLString,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)::Int
+    raw_sql = sql.raw
+    if length(sql.vars) > 0
+        result = _execute(conn, raw_sql, FunSQL.pack(sql.vars, args_values))
+    else
+        result = _execute(conn, raw_sql)
+    end
+    return result[1][:count]
+end
+
+function find_count(conn::MySQL.Connection, sql::FunSQL.SQLNode,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)::Int
+    return find_count(conn, FunSQL.render(sql; tables = mtables, dialect = :mysql), args_values)
+end
+
+function find_one(conn::MySQL.Connection, sql::FunSQL.SQLString,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)
+    raw_sql = sql.raw
+    if length(sql.vars) > 0
+        result = _execute(conn, raw_sql, FunSQL.pack(sql.vars, args_values))
+    else
+        result = _execute(conn, raw_sql)
+    end
+    return result[1]
+end
+
+function find_one(conn::MySQL.Connection, sql::FunSQL.SQLNode,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)
+    return find_one(conn, FunSQL.render(sql; tables = mtables, dialect = :mysql), args_values)
+end
+
+function find_all(conn::MySQL.Connection, sql::FunSQL.SQLString,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)
+    raw_sql = sql.raw
+    if length(sql.vars) > 0
+        return _execute(conn, raw_sql, FunSQL.pack(sql.vars, args_values))
+    else
+        return _execute(conn, raw_sql)
+    end
+end
+
+function find_all(conn::MySQL.Connection, sql::FunSQL.SQLNode,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing)
+    return find_all(conn, FunSQL.render(sql; tables = mtables, dialect = :mysql), args_values)
+end
+
+function find_many(conn::MySQL.Connection, sql::FunSQL.SQLString,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing; page::Int = 1, per_page::Int = 20)::FesPagination
+    raw_sql = sql.raw
+    if occursin("limit", raw_sql)
+        raw_sql = strip(raw_sql[1:(findfirst("limit", raw_sql).start - 1)])
+    end
+    paginate_sql = "$raw_sql limit $((page-1)*per_page), $(per_page)"
+    count_sql = "select count(*) as tcount $(raw_sql[(findfirst("FROM", raw_sql).start):end])"
+    if length(sql.vars) > 0
+        total_data = _execute(conn, count_sql, FunSQL.pack(sql.vars, args_values))
+        items = _execute(conn, paginate_sql, FunSQL.pack(sql.vars, args_values))
+    else
+        total_data = _execute(conn, count_sql)
+        items = _execute(conn, paginate_sql)
+    end
+    total_count = total_data[0][:tcount]
+
+    return FesPagination(; sql = raw_sql, page = page, per_page = per_page, total = total_count, items = items)
+end
+
+function find_many(conn::MySQL.Connection, sql::FunSQL.SQLNode,
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing; page::Int = 1, per_page::Int = 20)::FesPagination
+    return find_many(conn, FunSQL.render(sql; tables = mtables, dialect = :mysql), args_values;
+        page = page, per_page = per_page)
 end

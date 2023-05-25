@@ -32,3 +32,14 @@ function FunSQL.From(m::Type{T}) where {T <: Model}
     end
     return FunSQL.From(symbol_tablename)
 end
+
+"""
+    用于分页查询后的结果
+"""
+Base.@kwdef struct FesPagination
+    sql::String
+    page::Int
+    per_page::Int
+    total::Int
+    items::Vector{NamedTuple}
+end

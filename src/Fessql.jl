@@ -1,7 +1,7 @@
 module Fessql
 
 using MySQL, FunSQL, Tables
-export Model, colnames, model2tuple, FunSQL, Column, tablename
+export Model, colnames, model2tuple, FunSQL, Column, tablename, lulid, FesPagination
 
 """
     用于描述表的抽象类型Model
