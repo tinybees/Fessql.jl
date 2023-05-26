@@ -16,7 +16,8 @@ Base.@kwdef struct Column
     doc::String = ""
 end
 
-function Base.getproperty(obj::T, name::Symbol) {T < Model}
+function Base.getproperty(obj::T, name::Symbol)
+    {T < Model}
     field_value = getfield(obj, name)
     if typeof(field_value) == Column
         return FunSQL.Get(field_value.name)
@@ -37,9 +38,34 @@ end
     用于分页查询后的结果
 """
 Base.@kwdef struct FesPagination
-    sql::String
-    page::Int
-    per_page::Int
+    sql::FunSQL.SQLString
+    args_values::Union{Dict{Symbol, Any}, NamedTuple} = nothing
+    page::Int = 1
+    per_page::Int = 20
     total::Int
     items::Vector{NamedTuple}
+end
+
+"""The total number of pages"""
+function fespages(fp::FesPagination)::Int
+    if fp.per_page == 0 || fp.total == 0
+        pages = 0
+    else
+        pages = Int(ceil(fp.total / fp.per_page))
+    end
+    return pages
+end
+
+"""True if a next page exists."""
+has_next(fp::FesPagination) = fp.page < fespages(fp)
+
+"""True if a previous page exists"""
+has_prev(fp::FesPagination) = fp.page > 1
+
+function prev_many(fp::FesPagination, conn::MySQL.Connection)::FesPagination
+    return find_many(conn, fp.sql, fp.args_values; page = fp.page - 1, per_page = fp.per_page)
+end
+
+function next_many(fp::FesPagination, conn::MySQL.Connection)::FesPagination
+    return find_many(conn, fp.sql, fp.args_values; page = fp.page + 1, per_page = fp.per_page)
 end

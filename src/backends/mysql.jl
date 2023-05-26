@@ -309,7 +309,8 @@ function find_many(conn::MySQL.Connection, sql::FunSQL.SQLString,
     end
     total_count = total_data[0][:tcount]
 
-    return FesPagination(; sql = raw_sql, page = page, per_page = per_page, total = total_count, items = items)
+    return FesPagination(; sql = sql, args_values = args_values, page = page, per_page = per_page,
+        total = total_count, items = items)
 end
 
 function find_many(conn::MySQL.Connection, sql::FunSQL.SQLNode,
