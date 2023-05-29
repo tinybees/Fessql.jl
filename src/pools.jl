@@ -7,7 +7,7 @@ mutable struct PoolManager{T} <: AbstractPoolManager{<:AbstractConnectionManager
     conns::Channel{T} # channel
     numactive::Int # number of active connections
     max::Int  # maximum number of active connections
-    bind::String # 属于哪个bind
+    bind_key::String # 属于哪个bind_key
     dbconf::DBConfig  # mysql connection configuration
     dbkwargs::Base.Pairs # mysql kwargs for connection
 end
@@ -16,7 +16,7 @@ end
 mutable struct ConnectionManager <: AbstractConnectionManager
     conn::MySQL.Connection  # MySQL connection
     idle::Float64  # 空闲时间
-    bind::String # 属于哪个bind
+    bind_key::String # 属于哪个bind_key
     recycle::Int # 空闲时长关闭
 end
 
@@ -28,13 +28,12 @@ function create_poolconn(pm::PoolManager{<:AbstractConnectionManager}, conf::Mys
     # 设置是否自动提交默认否
     MySQL.API.autocommit(conn.mysql, conf.autocommit)
     # 加入channel
-    put!(pm.conns, ConnectionManager(conn, time(), pm.bind, conf.pool_recycle))
+    put!(pm.conns, ConnectionManager(conn, time(), pm.bind_key, conf.pool_recycle))
 end
 
-function Base.acquire(bind::String = "default")::ConnectionManager
-    pm::PoolManager{ConnectionManager} = dbpools[bind]
-    lock(pm.conns)
-    try
+function Base.acquire(bind_key::String = "default")::ConnectionManager
+    pm::PoolManager{ConnectionManager} = dbpools[bind_key]
+    lock(pm.conns) do 
         while isready(pm.conns)
             conn::ConnectionManager = take!(pm.conns)
             if (time() - conn.idle) > conn.recycle
@@ -69,26 +68,21 @@ function Base.acquire(bind::String = "default")::ConnectionManager
                 pm.numactive += 1
             end
         end
-    finally
-        unlock(pm.conns)
     end
 end
 
 function Base.release(conn::ConnectionManager)
-    pm = dbpools[conn.bind]
-    lock(pm.conns)
-    try
+    pm = dbpools[conn.bind_key]
+    lock(pm.conns) do 
         conn.idle = time()
         # 加入channel
         put!(pm.conns, conn)
         pm.numactive += 1
-    finally
-        unlock(pm.conns)
     end
 end
 
-function with_connection(f::Function, bind::String = "default")
-    conn::ConnectionManager = Base.acquire(bind)
+function with_connection(f::Function, bind_key::String = "default")
+    conn::ConnectionManager = Base.acquire(bind_key)
     try
         return f(conn.conn)
     finally
