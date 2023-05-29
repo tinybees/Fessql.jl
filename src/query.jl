@@ -16,8 +16,7 @@ Base.@kwdef struct Column
     doc::String = ""
 end
 
-function Base.getproperty(obj::T, name::Symbol)
-    {T < Model}
+function Base.getproperty(obj::T, name::Symbol) where {T <: Model}
     field_value = getfield(obj, name)
     if typeof(field_value) == Column
         return FunSQL.Get(field_value.name)

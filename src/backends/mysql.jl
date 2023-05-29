@@ -11,24 +11,20 @@ Base.@kwdef struct MysqlDBConfig <: DBConfig
     dbname::String
     reconnect::Bool = true
     autocommit::Bool = false
+    pool_size::Int = 10
+    pool_recycle::Int = 1800
 end
 
 function initialize_db(conf::MysqlDBConfig, db_binds::Union{Nothing, Dict{String, MysqlDBConfig}} = nothing; kwargs...)
     try
         # 默认的库连接
-        dbconns["default"] = DBInterface.connect(
-            MySQL.Connection, conf.dbhost, conf.username, conf.password;
-            db = conf.dbname, port = conf.port, reconnect = conf.reconnect, kwargs...)
-        # 设置是否自动提交默认否
-        MySQL.API.autocommit(dbconns["default"].mysql, conf.autocommit)
+        dbconns["default"] = ConnectionPod{ConnectionManager}(Channel(conf.pool_size), 1, conf.pool_size, "default")
+        create_poolconn(dbconns["default"], conf; kwargs)
         # db_binds中的连接
         if db_binds !== nothing
             for (name, dbargs) in db_binds
-                dbconns[name] = DBInterface.connect(
-                    MySQL.Connection, dbargs.dbhost, dbargs.username, dbargs.password;
-                    db = dbargs.dbname, port = dbargs.port, reconnect = dbargs.reconnect, kwargs...)
-                # 设置是否自动提交默认否
-                MySQL.API.autocommit(dbconns[name].mysql, dbargs.autocommit)
+                dbconns[name] = ConnectionPod{ConnectionManager}(Channel(dbargs.pool_size), 1, dbargs.pool_size, name)
+                create_poolconn(dbconns[name], dbargs; kwargs)
             end
         end
     catch ex
@@ -45,8 +41,11 @@ end
 
 function close_db()
     try
-        for (_, conn) in dbconns
-            DBInterface.close!(conn)
+        for (_, pod) in dbconns
+            for conn in pod.conns
+                DBInterface.close!(conn.conn)
+            end
+            pod.numactive = 0 #  全部关闭后活跃数量为0
         end
     catch ex
         @error ex

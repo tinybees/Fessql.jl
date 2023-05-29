@@ -1,7 +1,7 @@
 module Fessql
 
 using MySQL, FunSQL, Tables
-export Model, colnames, model2tuple, FunSQL, Column, tablename, lulid, FesPagination
+export Model, colnames, model2tuple, FunSQL, Column, tablename, lulid, FesPagination, dbconns
 
 """
     用于描述表的抽象类型Model
@@ -12,6 +12,17 @@ abstract type Model end
 用于数据库配置的抽象类型DBConfig
 """
 abstract type DBConfig end
+
+
+"""
+用于管理连接池channel的pod
+"""
+abstract type Pod{T} end
+
+"""
+用于管理Connection在channel中的链接
+"""
+abstract type PoolConnection end
 
 """
     colnames(m::Type{T}) where {T<:Model}
@@ -39,7 +50,7 @@ function tablename(m::Type{T})::String where {T <: Model}
 end
 
 # 存储数据库连接
-const dbconns = Dict{String, DBInterface.Connection}()
+const dbconns = Dict{String, Pod{T}}()
 
 """
 以下定义一些必要的抽象类型和函数
@@ -126,6 +137,7 @@ function delete! end
 """
 function tx_context end
 
+include("pools.jl")
 include("query.jl")
 include("backends/utils.jl")
 include("backends/mysql.jl")
